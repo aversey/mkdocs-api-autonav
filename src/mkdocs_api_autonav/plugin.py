@@ -50,7 +50,7 @@ class PluginConfig(Config):  # type: ignore [no-untyped-call]
     """Title for the API reference section as it appears in the navigation."""
     api_root_uri = opt.Type(str, default="reference")
     """Root folder for api docs in the generated site."""
-    nav_item_prefix = opt.Type(str, default=MOD_SYMBOL)
+    nav_item_prefix = opt.Type(str, default=MOD_SYMBOL+" ")
     """A prefix to add to each module name in the navigation."""
     exclude_private = opt.Type(bool, default=True)
     """Exclude modules that start with an underscore."""
