@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -39,8 +40,8 @@ logger = get_plugin_logger(PLUGIN_NAME)
 class PluginConfig(Config):  # type: ignore [no-untyped-call]
     """Our configuration options."""
 
-    modules = opt.ListOfPaths()
-    """List of paths to Python modules to include in the navigation. (e.g. ['src/package'])."""  # noqa
+    modules = opt.ListOfItems[str](opt.Type(str))
+    """List of paths or importable Python modules to include in the navigation. (e.g. ['src/package'] or ['package'])."""  # noqa
     module_options = opt.Type(dict, default={})
     """Dictionary of options for each module. The keys are module identifiers, and the values are [options for mkdocstrings-python](https://mkdocstrings.github.io/python/usage/#globallocal-options)."""  # noqa
     exclude = opt.ListOfItems[str](opt.Type(str), default=[])
@@ -157,10 +158,19 @@ class AutoAPIPlugin(BasePlugin[PluginConfig]):  # type: ignore [no-untyped-call]
                 exclude_paths.append(pattern)
 
         # for each top-level module specified in plugins.api-autonav.modules
-        for module in self.config.modules:
+        for module_spec in self.config.modules:
+            # Resolve the module specification to a filesystem path
+            # Use the directory containing mkdocs.yml as the base for relative paths
+            config_dir = Path(config.config_file_path).parent
+            try:
+                module_path = _resolve_module_path(module_spec, config_dir)
+            except ValueError as e:
+                logger.error("Failed to resolve module '%s': %s", module_spec, e)
+                continue
+
             # iterate (recursively) over all modules in the package
             for name_parts, docs_path in _iter_modules(
-                module,
+                module_path,
                 self.config.api_root_uri,
                 self.config.on_implicit_namespace_package,  # type: ignore [arg-type]
             ):
@@ -268,6 +278,72 @@ class AutoAPIPlugin(BasePlugin[PluginConfig]):  # type: ignore [no-untyped-call]
 
 
 # -----------------------------------------------------------------------------
+
+
+def _resolve_module_path(module_spec: str, base_dir: Path) -> Path:
+    """Resolve a module specification to a filesystem path.
+
+    Handles both filesystem paths and Python importable module names.
+
+    Parameters
+    ----------
+    module_spec : str
+        Either a filesystem path (e.g., 'src/package') or an importable
+        module name (e.g., 'package').
+    base_dir : Path | None
+        Base directory for resolving relative paths.
+        If None, uses the current working directory.
+
+    Returns
+    -------
+    Path
+        The resolved filesystem path to the module.
+
+    Raises
+    ------
+    ValueError
+        If the module cannot be resolved or found.
+    """
+    # First, check if it's an existing filesystem path.
+    # Check both relative and absolute paths.
+    path = Path(module_spec)
+    if not path.is_absolute():
+        path = base_dir / path
+
+    if path.exists():
+        return path.resolve()
+
+    # If the module_spec contains path separators, treat it as filesystem path.
+    # This ensures "src/package" is treated as a path.
+    if "/" in module_spec or "\\" in module_spec:
+        # It looks like a path but doesn't exist.
+        return path
+
+    # Try to resolve as an importable module.
+    try:
+        spec = importlib.util.find_spec(module_spec)
+        if spec is None or spec.origin is None:
+            raise ValueError(
+                f"Module '{module_spec}' could not be found. "
+                "Ensure it is installed or provide a valid filesystem path."
+            )
+
+        # Get the module's file path.
+        origin_path = Path(spec.origin)
+
+        # For packages, the origin points to __init__.py.
+        # We want the parent directory.
+        if origin_path.name == "__init__.py":
+            return origin_path.parent
+
+        # For single-file modules, return the file itself.
+        return origin_path
+
+    except (ModuleNotFoundError, ValueError) as e:
+        raise ValueError(
+            f"Module '{module_spec}' could not be resolved as a "
+            f"filesystem path or importable module: {e}"
+        ) from e
 
 
 def _iter_modules(

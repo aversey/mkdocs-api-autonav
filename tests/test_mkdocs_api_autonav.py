@@ -9,7 +9,7 @@ import yaml
 from mkdocs.exceptions import Abort
 from pytest import MonkeyPatch
 
-from mkdocs_api_autonav.plugin import PluginConfig, _iter_modules
+from mkdocs_api_autonav.plugin import PluginConfig, _iter_modules, _resolve_module_path
 
 if TYPE_CHECKING:
     from _pytest.logging import LogCaptureFixture
@@ -266,3 +266,61 @@ def test_awesome_nav_compat(repo1: Path) -> None:
     assert (lib := ref / "my_library").is_dir()
     assert (lib / "index.html").is_file()
     assert (lib / "submod").is_dir()
+
+
+def test_resolve_module_path_filesystem(repo1: Path) -> None:
+    """Test resolving a filesystem path."""
+    path = repo1 / "src" / "my_library"
+    resolved = _resolve_module_path(str(path), base_dir=repo1)
+    assert resolved == path.resolve()
+
+
+def test_resolve_module_path_importable(monkeypatch: MonkeyPatch) -> None:
+    """Test resolving an importable module name."""
+    # Use a module that's guaranteed to be installed (pathlib is built-in)
+    resolved = _resolve_module_path("pathlib", Path.cwd())
+    assert resolved.exists()
+    # pathlib can be either a directory or a file depending on Python version
+    assert resolved.name in ("pathlib.py", "pathlib")
+
+
+def test_resolve_module_path_package(monkeypatch: MonkeyPatch, repo1: Path) -> None:
+    """Test resolving an importable package (with __init__.py)."""
+    # Add the test library to sys.path so it can be imported
+    monkeypatch.syspath_prepend(str(repo1 / "src"))
+
+    resolved = _resolve_module_path("my_library", Path.cwd())
+    assert resolved.exists()
+    assert resolved.name == "my_library"
+    assert (resolved / "__init__.py").is_file()
+
+
+def test_resolve_module_path_invalid() -> None:
+    """Test error handling for invalid module specification."""
+    with pytest.raises(ValueError, match="could not be resolved"):
+        _resolve_module_path("nonexistent_module", Path.cwd())
+
+
+def test_build_with_importable_module(repo1: Path, monkeypatch: MonkeyPatch) -> None:
+    """Test building docs using an importable module name instead of path."""
+    # Add the test library to sys.path so it can be imported
+    monkeypatch.syspath_prepend(str(repo1 / "src"))
+
+    cfg = cfg_dict()
+    # Use importable module name instead of path
+    cfg["plugins"][2]["api-autonav"]["modules"] = ["my_library"]
+    cfg["plugins"][2]["api-autonav"]["exclude"] = ["my_library.exclude_me"]
+
+    mkdocs_yml = repo1 / "mkdocs.yml"
+    mkdocs_yml.write_text(yaml.safe_dump(cfg))
+    _build_command(str(mkdocs_yml))
+
+    # Verify the same structure is generated
+    assert (ref := repo1 / "site" / "reference").is_dir()
+    assert (lib := ref / "my_library").is_dir()
+    assert (lib / "index.html").is_file()
+    assert (sub_mod := lib / "submod").is_dir()
+    assert (sub_mod / "index.html").is_file()
+    assert (sub_sub := sub_mod / "sub_submod").is_dir()
+    assert (sub_sub / "index.html").is_file()
+    assert not any(lib.rglob("*exclude_me*"))

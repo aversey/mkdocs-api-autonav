@@ -28,6 +28,19 @@ plugins:
       modules: ['src/my_library']
 ```
 
+Or, if your package is installed via pip, you can use the importable module name:
+
+```yaml
+# mkdocs.yml
+site_name: "My Library"
+
+plugins:
+  - search
+  - mkdocstrings
+  - api-autonav:
+      modules: ['my_library']
+```
+
 > [!IMPORTANT]
 > This plugin depends on `mkdocs>=1.6` (*Released: Apr 20, 2024*)
 
@@ -48,9 +61,11 @@ plugins:
       on_implicit_namespace_package: "warn"
 ```
 
-- **`modules`** (`list[str]`) - List of paths to Python modules to include in the
-  navigation, relative to the project root.  This is the only required
-  configuration. (e.g., `["src/package"]`)
+- **`modules`** (`list[str]`) - List of paths or importable Python modules to
+  include in the navigation. This is the only required configuration. Can be
+  either filesystem paths relative to the project root (e.g., `["src/package"]`)
+  or Python importable module names (e.g., `["my_package"]`). If there is a `my_package` directory in your
+  project root, it is always used in preference to any installed package of the same name.
 - **`module_options`** (`dict[str, dict]`) - Dictionary of local options to pass
   to `mkdocstrings` for specific modules. The keys are python identifiers or a
   regex pattern to match (e.g., `package.module` or `.*\.some_module`) and the values are
@@ -128,13 +143,13 @@ existing `nav` configuration.
     `literate-nav` to autodetect other markdown files in your
     `docs/<api-autonav.api_root_uri>` directory.
 
-1. **If `<nav_section_title>` is a dictionary containing a list of items**  
+1. **If `<nav_section_title>` is a dictionary containing a list of items**
 
     If the API section is defined as `{ api-autonav.nav_section_title: [...] }`, the plugin
     appends its generated navigation structure to the existing list.  This
     can be used to add additional items to the API section.
 
-1. **If `<nav_section_title>` is not found in nav**  
+1. **If `<nav_section_title>` is not found in nav**
 
     If no API section is found in the existing nav, the plugin appends a new
     section at the end of the nav list with the generated API navigation.
@@ -225,7 +240,7 @@ documentation for my projects.
   mirrors the module structure.
 
 > [!NOTE]
-> This pattern was mostly borrowed/inspired by the 
+> This pattern was mostly borrowed/inspired by the
 > [`gen_ref_nav.py` example in mkdocstrings](https://github.com/mkdocstrings/mkdocstrings/blob/6ef141222d0b5ad47ced9049472243cf5887ec0e/scripts/gen_ref_nav.py),
 > created by [@pawamoy](https://github.com/pawamoy)
 
@@ -250,4 +265,4 @@ Here are some other plugins that support automatic generation of API docs (and
 why I ultimately decided not to use them.)
 
 - [**mkapi**](https://github.com/daizutabi/mkapi) - based on [astdoc](https://github.com/daizutabi/astdoc) instead of [mkdocstrings](https://github.com/mkdocstrings/mkdocstrings)... (and I wanted to stay within the mkdocstrings ecosystem)
-- [**mkdocs-autoapi**](https://github.com/jcayers20/mkdocs-autoapi) - also uses mkdocstrings (like this plugin), but vendors two other plugins ([mkdocs-gen-files](https://github.com/oprypin/mkdocs-gen-files) and [literate-nav](https://github.com/oprypin/mkdocs-literate-nav)) so as to support the [original pattern from @pawamoy's recipe](https://github.com/mkdocstrings/mkdocstrings/blob/6ef141222d0b5ad47ced9049472243cf5887ec0e/scripts/gen_ref_nav.py), made unnecessary by [newer mkdocs APIs](https://www.mkdocs.org/dev-guide/api/#mkdocs.structure.files.File.generated) 
+- [**mkdocs-autoapi**](https://github.com/jcayers20/mkdocs-autoapi) - also uses mkdocstrings (like this plugin), but vendors two other plugins ([mkdocs-gen-files](https://github.com/oprypin/mkdocs-gen-files) and [literate-nav](https://github.com/oprypin/mkdocs-literate-nav)) so as to support the [original pattern from @pawamoy's recipe](https://github.com/mkdocstrings/mkdocstrings/blob/6ef141222d0b5ad47ced9049472243cf5887ec0e/scripts/gen_ref_nav.py), made unnecessary by [newer mkdocs APIs](https://www.mkdocs.org/dev-guide/api/#mkdocs.structure.files.File.generated)
