@@ -60,6 +60,26 @@ class PluginConfig(Config):  # type: ignore [no-untyped-call]
         default="warn", choices=["raise", "warn", "skip"]
     )
     """What to do when encountering an implicit namespace package."""
+    hide_empty = opt.Type(bool, default=False)
+    """Hide modules that have no documentable content (e.g., only private members)."""
+
+
+def _is_empty_module_page(html: str) -> bool:
+    """Check if the page contains only an empty module with no documented members.
+
+    Detects pages where mkdocstrings rendered a module but found no documentable
+    content (e.g., all members are private or filtered out).
+    """
+    # Must have a module doc block to be considered an empty module page.
+    if "doc-object doc-module" not in html:
+        return False
+    # Check for any documented member types.
+    # If any of these exist, the module has content.
+    member_types = ["function", "class", "attribute", "method", "property"]
+    for member_type in member_types:
+        if f"doc-object doc-{member_type}" in html:
+            return False
+    return True
 
 
 class AutoAPIPlugin(BasePlugin[PluginConfig]):  # type: ignore [no-untyped-call]
@@ -67,6 +87,7 @@ class AutoAPIPlugin(BasePlugin[PluginConfig]):  # type: ignore [no-untyped-call]
 
     nav: _NavNode
     _uses_awesome_nav: bool = False
+    _empty_page_urls: set[str]
 
     def on_config(self, config: MkDocsConfig) -> MkDocsConfig | None:
         """First event called on build. Run right after the user config is loaded."""
@@ -93,6 +114,7 @@ class AutoAPIPlugin(BasePlugin[PluginConfig]):  # type: ignore [no-untyped-call]
             title=self.config.nav_section_title,
             show_full_namespace=self.config.show_full_namespace,
         )
+        self._empty_page_urls = set()
         return None
 
     def _module_markdown(self, parts: tuple[str, ...]) -> str:
@@ -275,6 +297,70 @@ class AutoAPIPlugin(BasePlugin[PluginConfig]):  # type: ignore [no-untyped-call]
             if not item.title:
                 parts = item.url.split("/")
                 item.meta["title"] = f"{self.config.nav_item_prefix}{parts[-2]}"
+
+    def on_page_content(
+        self, html: str, /, *, page: Page, config: MkDocsConfig, files: Files
+    ) -> str | None:
+        """Called after Markdown is rendered to HTML, before template processing.
+
+        Detects empty module pages and removes them from navigation.
+        """
+        if not self.config.hide_empty:
+            return None
+
+        # Only process pages under our API root.
+        api_root = self.config.api_root_uri.strip("/") + "/"
+        if not page.url.startswith(api_root):
+            return None
+
+        if not _is_empty_module_page(html):
+            return None
+
+        # This page is empty; mark it for skipping and remove from navigation.
+        self._empty_page_urls.add(page.url)
+        logger.info("Excluding empty module page: %s", page.url)
+        self._remove_from_nav(page)
+        return None
+
+    def _remove_from_nav(self, page: Page) -> None:
+        """Remove a page from the navigation tree.
+
+        Also removes parent Sections that become empty after removal.
+        """
+        parent = page.parent
+        if parent is None or not isinstance(parent, Section):
+            return
+
+        # Remove the page from its parent's children.
+        if page in parent.children:
+            parent.children.remove(page)
+
+        # Recursively remove empty parent Sections.
+        self._prune_empty_sections(parent)
+
+    def _prune_empty_sections(self, section: Section) -> None:
+        """Remove the section if it has no children, then check its parent."""
+        if section.children:
+            return
+
+        parent = section.parent
+        if parent is None:
+            return
+
+        if isinstance(parent, Section) and section in parent.children:
+            parent.children.remove(section)
+            self._prune_empty_sections(parent)
+
+    def on_post_page(
+        self, output: str, /, *, page: Page, config: MkDocsConfig
+    ) -> str | None:
+        """Called after template rendering, before writing to disk.
+
+        Returns empty string for empty module pages to skip writing them.
+        """
+        if page.url in self._empty_page_urls:
+            return ""
+        return None
 
 
 # -----------------------------------------------------------------------------

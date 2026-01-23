@@ -239,7 +239,9 @@ def test_multi_package(repo1: Path, strict: bool, nav: dict) -> None:
 def test_index_py_module(repo1: Path) -> None:
     """Test the edge case of a module named index.py"""
     cfg = cfg_dict()
-    repo1.joinpath("src", "my_library", "index.py").touch()
+    repo1.joinpath("src", "my_library", "index.py").write_text(
+        '"""Index module."""\ndef func():\n    """A function."""\n'
+    )
     mkdocs_yml = repo1 / "mkdocs.yml"
     mkdocs_yml.write_text(yaml.safe_dump(cfg))
     _build_command(str(mkdocs_yml))
@@ -249,6 +251,27 @@ def test_index_py_module(repo1: Path) -> None:
     assert (lib / "index.html").is_file()
     assert (sub_mod := lib / "index_py").is_dir()
     assert (sub_mod / "index.html").is_file()
+
+
+def test_empty_module_excluded(repo1: Path) -> None:
+    """Test that empty modules are excluded when hide_empty is True."""
+    cfg = cfg_dict()
+    cfg["plugins"][2]["api-autonav"]["hide_empty"] = True
+    # Create an empty module (only private members).
+    repo1.joinpath("src", "my_library", "empty_mod.py").write_text(
+        "_private = 1\ndef _hidden(): pass\n"
+    )
+    mkdocs_yml = repo1 / "mkdocs.yml"
+    mkdocs_yml.write_text(yaml.safe_dump(cfg))
+    _build_command(str(mkdocs_yml))
+
+    ref = repo1 / "site" / "reference"
+    lib = ref / "my_library"
+    # The empty module should not have a generated page.
+    assert not (lib / "empty_mod").exists()
+    # But normal modules should still exist.
+    assert (lib / "index.html").is_file()
+    assert (lib / "submod").is_dir()
 
 
 def test_awesome_nav_compat(repo1: Path) -> None:
